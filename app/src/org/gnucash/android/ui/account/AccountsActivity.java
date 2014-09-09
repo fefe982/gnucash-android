@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2012 Ngewi Fet <ngewif@gmail.com>
+ * Copyright (c) 2012 - 2014 Ngewi Fet <ngewif@gmail.com>
+ * Copyright (c) 2014 Yongxin Wang <fefe.wyx@gmail.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -36,21 +37,23 @@ import android.support.v4.view.ViewPager;
 import android.util.SparseArray;
 import android.view.View;
 import android.view.ViewGroup;
-import com.actionbarsherlock.app.SherlockFragmentActivity;
+
 import com.actionbarsherlock.view.Menu;
 import com.actionbarsherlock.view.MenuInflater;
 import com.actionbarsherlock.view.MenuItem;
 import com.viewpagerindicator.TitlePageIndicator;
+
 import org.gnucash.android.R;
 import org.gnucash.android.app.GnuCashApplication;
 import org.gnucash.android.importer.ImportAsyncTask;
 import org.gnucash.android.model.Money;
-import org.gnucash.android.ui.util.Refreshable;
 import org.gnucash.android.ui.UxArgument;
+import org.gnucash.android.ui.passcode.PassLockActivity;
 import org.gnucash.android.ui.settings.SettingsActivity;
 import org.gnucash.android.ui.transaction.ScheduledTransactionsListFragment;
 import org.gnucash.android.ui.transaction.TransactionsActivity;
 import org.gnucash.android.ui.util.OnAccountClickedListener;
+import org.gnucash.android.ui.util.Refreshable;
 
 import java.io.FileNotFoundException;
 import java.io.InputStream;
@@ -61,7 +64,7 @@ import java.io.InputStream;
  * @author Ngewi Fet <ngewif@gmail.com>
  * 
  */
-public class AccountsActivity extends SherlockFragmentActivity implements OnAccountClickedListener {
+public class AccountsActivity extends PassLockActivity implements OnAccountClickedListener {
 
 	/**
 	 * Tag used for identifying the account list fragment when it is added to this activity
@@ -264,12 +267,6 @@ public class AccountsActivity extends SherlockFragmentActivity implements OnAcco
             showWhatsNewDialog(this);
         }
 
-    }
-
-     @Override
-    protected void onResume() {
-        super.onResume();
-        //TransactionsActivity.sLastTitleColor = -1;
     }
 
     @Override
