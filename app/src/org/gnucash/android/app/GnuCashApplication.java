@@ -24,6 +24,14 @@ import org.gnucash.android.R;
 
 import java.util.Currency;
 import java.util.Locale;
+import org.acra.*;
+import org.acra.annotation.*;
+import org.gnucash.android.acra.SDCardSaveSender;
+
+@ReportsCrashes(
+        formKey = "", // This is required for backward compatibility but not used
+        formUri = ""
+)
 
 /**
  * An {@link Application} subclass for retrieving static context
@@ -45,6 +53,11 @@ public class GnuCashApplication extends Application{
     private static Context context;
 
     public void onCreate(){
+        /// initialize Error report
+        ACRA.init(this);
+        SDCardSaveSender sdCardSaveSender = new SDCardSaveSender();
+        ACRA.getErrorReporter().setReportSender(sdCardSaveSender);
+        /// Normal initialize
         super.onCreate();
         GnuCashApplication.context = getApplicationContext();
     }
