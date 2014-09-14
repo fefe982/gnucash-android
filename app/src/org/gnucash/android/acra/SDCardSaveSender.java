@@ -1,5 +1,8 @@
 package org.gnucash.android.acra;
 
+import org.acra.ACRA;
+import org.acra.ACRAConstants;
+import org.acra.ReportField;
 import org.acra.collector.CrashReportData;
 import org.acra.sender.ReportSender;
 import org.acra.sender.ReportSenderException;
@@ -10,6 +13,7 @@ import java.io.FileWriter;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Map;
 
 public class SDCardSaveSender implements ReportSender {
     private static final String REPORT_FOLDER_PATH = Exporter.EXPORT_FOLDER_PATH + "crash/";
@@ -23,7 +27,17 @@ public class SDCardSaveSender implements ReportSender {
                     new Date(System.currentTimeMillis()))
                     + "_gnucash_crash.txt";
             FileWriter fileWriter = new FileWriter(REPORT_FOLDER_PATH + filename);
-            fileWriter.write(report.toJSON().toString());
+
+            ReportField[] fields = ACRA.getConfig().customReportContent();
+            if (fields.length == 0) {
+                fields = ACRAConstants.DEFAULT_REPORT_FIELDS;
+            }
+            for (ReportField field : fields) {
+                fileWriter.append(field.toString())
+                    .append(":\n")
+                    .append(report.get(field))
+                    .append("\n\n");
+            }
             fileWriter.close();
         }
         catch (Exception e) {
