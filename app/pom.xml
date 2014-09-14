@@ -51,6 +51,11 @@
             <version>${viewpagerindicator.version}</version>
             <type>apklib</type>
         </dependency>
+        <dependency>
+            <groupId>ch.acra</groupId>
+            <artifactId>acra</artifactId>
+            <version>4.5.0</version>
+        </dependency>
     </dependencies>
     <build>
         <sourceDirectory>src</sourceDirectory>
