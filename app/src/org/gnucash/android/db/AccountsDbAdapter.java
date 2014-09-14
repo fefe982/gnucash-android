@@ -168,22 +168,21 @@ public class AccountsDbAdapter extends DatabaseAdapter {
     public int markAsExported(String accountUID){
         ContentValues contentValues = new ContentValues();
         contentValues.put(TransactionEntry.COLUMN_EXPORTED, 1);
-        Cursor cursor = mTransactionsAdapter.fetchAllTransactionsForAccount(accountUID);
-        List<Long> transactionIdList = new ArrayList<Long>();
-        if (cursor != null){
-            while(cursor.moveToNext()){
-                long id = cursor.getLong(cursor.getColumnIndexOrThrow(TransactionEntry._ID));
-                transactionIdList.add(id);
-            }
-            cursor.close();
-        }
-        int recordsTouched = 0;
-        for (long id : transactionIdList) {
-            recordsTouched += mDb.update(TransactionEntry.TABLE_NAME,
-                    contentValues,
-                    TransactionEntry._ID + "=" + id, null);
-        }
-        return recordsTouched;
+        return mDb.update(
+                TransactionEntry.TABLE_NAME,
+                contentValues,
+                TransactionEntry.COLUMN_UID + " IN ( " +
+                        "SELECT DISTINCT " + TransactionEntry.TABLE_NAME + "." + TransactionEntry.COLUMN_UID +
+                        " FROM " + TransactionEntry.TABLE_NAME + " , " + SplitEntry.TABLE_NAME + " ON " +
+                        TransactionEntry.TABLE_NAME + "." + TransactionEntry.COLUMN_UID + " = " +
+                        SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_TRANSACTION_UID + " , " +
+                        AccountEntry.TABLE_NAME + " ON " + SplitEntry.TABLE_NAME + "." +
+                        SplitEntry.COLUMN_ACCOUNT_UID + " = " + AccountEntry.TABLE_NAME + "." +
+                        AccountEntry.COLUMN_UID + " WHERE " + AccountEntry.TABLE_NAME + "." +
+                        AccountEntry.COLUMN_UID + " = ? "
+                        + " ) ",
+                new String[] {accountUID}
+        );
     }
 
     /**
@@ -458,33 +457,69 @@ public class AccountsDbAdapter extends DatabaseAdapter {
     public List<Account> getSimpleAccountList(){
         LinkedList<Account> accounts = new LinkedList<Account>();
         Cursor c = fetchAccounts(null);
-
         if (c == null)
             return accounts;
 
-        while(c.moveToNext()){
-            accounts.add(buildSimpleAccountInstance(c));
+        try {
+            while (c.moveToNext()) {
+                accounts.add(buildSimpleAccountInstance(c));
+            }
         }
-        c.close();
+        finally {
+            c.close();
+        }
         return accounts;
     }
 
+    /**
+     * Returns a list of all account entries in the system (includes root account)
+     * No transactions are loaded, just the accounts
+     * @return List of {@link Account}s in the database
+     */
+    public List<Account> getSimpleAccountList(String where, String[] whereArgs, String orderBy){
+        LinkedList<Account> accounts = new LinkedList<Account>();
+        Cursor c = fetchAccounts(where, whereArgs, orderBy);
+        if (c == null)
+            return accounts;
+        try {
+            while (c.moveToNext()) {
+                accounts.add(buildSimpleAccountInstance(c));
+            }
+        }
+        finally {
+            c.close();
+        }
+        return accounts;
+    }
 	/**
 	 * Returns a list of accounts which have transactions that have not been exported yet
 	 * @return List of {@link Account}s with unexported transactions
 	 */
 	public List<Account> getExportableAccounts(){
-        //TODO: Optimize to use SQL DISTINCT and load only necessary accounts from db
-		List<Account> accountsList = getAllAccounts();
-		Iterator<Account> it = accountsList.iterator();
-		
-		while (it.hasNext()){
-			Account account = it.next();
-			
-			if (!account.hasUnexportedTransactions())
-				it.remove();
-		}
-		return accountsList;
+        LinkedList<Account> accountsList = new LinkedList<Account>();
+        Cursor cursor = mDb.query(
+                TransactionEntry.TABLE_NAME + " , " + SplitEntry.TABLE_NAME +
+                        " ON " + TransactionEntry.TABLE_NAME + "." + TransactionEntry.COLUMN_UID + " = " +
+                        SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_TRANSACTION_UID + " , " +
+                        AccountEntry.TABLE_NAME + " ON " + AccountEntry.TABLE_NAME + "." +
+                        AccountEntry.COLUMN_UID + " = " + SplitEntry.TABLE_NAME + "." +
+                        SplitEntry.COLUMN_ACCOUNT_UID,
+                new String[]{AccountEntry.TABLE_NAME + ".*"},
+                TransactionEntry.TABLE_NAME + "." + TransactionEntry.COLUMN_EXPORTED + " == 0",
+                null,
+                AccountEntry.TABLE_NAME + "." + AccountEntry.COLUMN_UID,
+                null,
+                null
+        );
+        try {
+            while (cursor.moveToNext()) {
+                accountsList.add(buildAccountInstance(cursor));
+            }
+        }
+        finally {
+            cursor.close();
+        }
+        return accountsList;
 	}
 
     /**
@@ -518,20 +553,27 @@ public class AccountsDbAdapter extends DatabaseAdapter {
             throw new IllegalArgumentException("The account name cannot be null");
 
         String[] tokens = fullName.trim().split(ACCOUNT_NAME_SEPARATOR);
-        String uid = null;
+        String uid = getGnuCashRootAccountUID();
         String parentName = "";
+        ArrayList<Account> accountsList = new ArrayList<Account>();
         for (String token : tokens) {
             parentName += token;
             String parentUID = findAccountUidByFullName(parentName);
-            parentName += ACCOUNT_NAME_SEPARATOR;
             if (parentUID != null){ //the parent account exists, don't recreate
                 uid = parentUID;
-                continue;
             }
-            Account account = new Account(token);
-            account.setAccountType(accountType);
-            account.setParentUID(uid); //set its parent
-            uid = account.getUID();
+            else {
+                Account account = new Account(token);
+                account.setAccountType(accountType);
+                account.setParentUID(uid); //set its parent
+                account.setFullName(parentName);
+                accountsList.add(account);
+                uid = account.getUID();
+            }
+            parentName += ACCOUNT_NAME_SEPARATOR;
+        }
+        if (accountsList.size() > 0) {
+            bulkAddAccounts(accountsList);
         }
         return uid;
     }
@@ -633,15 +675,17 @@ public class AccountsDbAdapter extends DatabaseAdapter {
     /**
      * Returns a Cursor set of accounts which fulfill <code>condition</code>
      * and ordered by <code>orderBy</code>
-     * @param condition SQL WHERE statement without the 'WHERE' itself
+     * @param where SQL WHERE statement without the 'WHERE' itself
+     * @param whereArgs args to where clause
+     * @param orderBy orderBy clause
      * @return Cursor set of accounts which fulfill <code>condition</code>
      */
-    public Cursor fetchAccounts(String condition, String orderBy){
+    public Cursor fetchAccounts(String where, String[] whereArgs, String orderBy){
         Log.v(TAG, "Fetching all accounts from db where " +
-                (condition == null ? "NONE" : condition) + " order by " +
+                (where == null ? "NONE" : where) + " order by " +
                 (orderBy == null ? "NONE" : orderBy));
         return mDb.query(AccountEntry.TABLE_NAME,
-                null, condition, null, null, null,
+                null, where, whereArgs, null, null,
                 orderBy);
     }
     /**
@@ -694,27 +738,50 @@ public class AccountsDbAdapter extends DatabaseAdapter {
         currencyCode = currencyCode == null ? Money.DEFAULT_CURRENCY_CODE : currencyCode;
         Money balance = Money.createZeroInstance(currencyCode);
 
-        // retrieve all descendant accounts of the accountUID
+        List<String> accountsList = getDescendantAccountUIDs(accountUID,
+                AccountEntry.COLUMN_CURRENCY + " = ? ",
+                new String[]{currencyCode});
+
+        accountsList.add(0, accountUID);
+
+        SplitsDbAdapter splitsDbAdapter = new SplitsDbAdapter(getContext());
+        Log.d(TAG, "all account list : " + accountsList.size());
+        Money splitSum = splitsDbAdapter.computeSplitBalance(accountsList, currencyCode, hasDebitNormalBalance);
+        splitsDbAdapter.close();
+        return balance.add(splitSum);
+    }
+
+    /**
+     * Retrieve all descendant accounts of an account
+     * Note, in filtering, once an account is filtered out, all its descendants
+     * will also be filtered out, even they don't meet the filter condition
+     * @param accountUID The account to retrieve descendant accounts
+     * @param where      Condition to filter accounts
+     * @param whereArgs  Condition args to filter accounts
+     * @return The descendant accounts list.
+     */
+    public List<String> getDescendantAccountUIDs(String accountUID, String where, String[] whereArgs) {
         // accountsList will hold accountUID with all descendant accounts.
-        // accountsList level will hold descendant accounts of the same level
-        // only accounts have the same currency with accountUID will be retrieved
+        // accountsListLevel will hold descendant accounts of the same level
         ArrayList<String> accountsList = new ArrayList<String>();
-        accountsList.add(accountUID);
         ArrayList<String> accountsListLevel = new ArrayList<String>();
         accountsListLevel.add(accountUID);
         for (;;) {
             Cursor cursor = mDb.query(AccountEntry.TABLE_NAME,
                     new String[]{AccountEntry.COLUMN_UID},
-                    AccountEntry.COLUMN_PARENT_ACCOUNT_UID + " IN ( '" + TextUtils.join("' , '", accountsListLevel) + "' ) AND " +
-                            AccountEntry.COLUMN_CURRENCY + " = ? ",
-                    new String[]{currencyCode}, null, null, null);
+                    AccountEntry.COLUMN_PARENT_ACCOUNT_UID + " IN ( '" + TextUtils.join("' , '", accountsListLevel) + "' )" +
+                            (where == null ? "" : " AND " + where),
+                    whereArgs, null, null, null);
             accountsListLevel.clear();
-            if (cursor != null){
-                int columnIndex = cursor.getColumnIndexOrThrow(AccountEntry.COLUMN_UID);
-                while(cursor.moveToNext()){
-                    accountsListLevel.add(cursor.getString(columnIndex));
+            if (cursor != null) {
+                try {
+                    int columnIndex = cursor.getColumnIndexOrThrow(AccountEntry.COLUMN_UID);
+                    while (cursor.moveToNext()) {
+                        accountsListLevel.add(cursor.getString(columnIndex));
+                    }
+                } finally {
+                    cursor.close();
                 }
-                cursor.close();
             }
             if (accountsListLevel.size() > 0) {
                 accountsList.addAll(accountsListLevel);
@@ -723,12 +790,7 @@ public class AccountsDbAdapter extends DatabaseAdapter {
                 break;
             }
         }
-
-        SplitsDbAdapter splitsDbAdapter = new SplitsDbAdapter(getContext());
-        Log.d(TAG, "all account list : " + accountsList.size());
-        Money splitSum = splitsDbAdapter.computeSplitBalance(accountsList, currencyCode, hasDebitNormalBalance);
-        splitsDbAdapter.close();
-        return balance.add(splitSum);
+        return accountsList;
     }
 
     /**
@@ -794,35 +856,20 @@ public class AccountsDbAdapter extends DatabaseAdapter {
      * @return Cursor to recently used accounts
      */
     public Cursor fetchRecentAccounts(int numberOfRecents){
-        SQLiteQueryBuilder queryBuilder = new SQLiteQueryBuilder();
-        queryBuilder.setTables(TransactionEntry.TABLE_NAME
+        return mDb.query(TransactionEntry.TABLE_NAME
                 + " LEFT OUTER JOIN " + SplitEntry.TABLE_NAME + " ON "
                 + TransactionEntry.TABLE_NAME + "." + TransactionEntry.COLUMN_UID + " = "
-                + SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_TRANSACTION_UID);
-        queryBuilder.setDistinct(true);
-        String sortOrder = TransactionEntry.TABLE_NAME + "." + TransactionEntry.COLUMN_TIMESTAMP + " DESC";
-        Map<String, String> projectionMap = new HashMap<String, String>();
-        projectionMap.put(SplitEntry.COLUMN_ACCOUNT_UID, SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_ACCOUNT_UID);
-        queryBuilder.setProjectionMap(projectionMap);
-        Cursor recentTxCursor =  queryBuilder.query(mDb,
-                new String[]{SplitEntry.COLUMN_ACCOUNT_UID},
-                null, null, null, null, sortOrder, Integer.toString(numberOfRecents));
-
-
-        StringBuilder recentAccountUIDs = new StringBuilder("(");
-        while (recentTxCursor.moveToNext()){
-            String uid = recentTxCursor.getString(recentTxCursor.getColumnIndexOrThrow(SplitEntry.COLUMN_ACCOUNT_UID));
-            recentAccountUIDs.append("'" + uid + "'");
-            if (!recentTxCursor.isLast())
-                recentAccountUIDs.append(",");
-        }
-        recentAccountUIDs.append(")");
-        recentTxCursor.close();
-
-        return mDb.query(AccountEntry.TABLE_NAME,
-                null, AccountEntry.COLUMN_UID + " IN " + recentAccountUIDs.toString(),
-                null, null, null, AccountEntry.COLUMN_NAME + " ASC");
-
+                + SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_TRANSACTION_UID
+                + " , " + AccountEntry.TABLE_NAME + " ON " + SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_ACCOUNT_UID
+                + " = " + AccountEntry.TABLE_NAME + "." + AccountEntry.COLUMN_UID,
+                new String[]{AccountEntry.TABLE_NAME + ".*"},
+                null,
+                null,
+                SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_ACCOUNT_UID, //groupby
+                null, //haveing
+                "MAX ( " + TransactionEntry.TABLE_NAME + "." + TransactionEntry.COLUMN_TIMESTAMP + " ) DESC", // order
+                Integer.toString(numberOfRecents) // limit;
+        );
     }
 
     /**
@@ -997,6 +1044,26 @@ public class AccountsDbAdapter extends DatabaseAdapter {
         String parentAccountName = getFullyQualifiedAccountName(parentAccountUID);
 
         return parentAccountName + ACCOUNT_NAME_SEPARATOR + accountName;
+    }
+
+    /**
+     * get account's full name directly from DB
+     * @param accountUID the account to retrieve full name
+     * @return full name registered in DB
+     */
+    public String getAccountFullName(String accountUID) {
+        Cursor cursor = mDb.query(AccountEntry.TABLE_NAME, new String[]{AccountEntry.COLUMN_FULL_NAME},
+                AccountEntry.COLUMN_UID + " = ?", new String[]{accountUID},
+                null, null, null);
+        try {
+            if (cursor.moveToFirst()) {
+                return cursor.getString(cursor.getColumnIndexOrThrow(AccountEntry.COLUMN_FULL_NAME));
+            }
+        }
+        finally {
+            cursor.close();
+        }
+        return null;
     }
 
     /**
