@@ -18,6 +18,7 @@ package org.gnucash.android.app;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.StrictMode;
 import android.preference.PreferenceManager;
 import android.util.Log;
 import org.gnucash.android.R;
@@ -60,6 +61,11 @@ public class GnuCashApplication extends Application{
         /// Normal initialize
         super.onCreate();
         GnuCashApplication.context = getApplicationContext();
+        StrictMode.setVmPolicy(new StrictMode.VmPolicy.Builder()
+                .detectAll()
+                .penaltyLog()
+                .penaltyDeath()
+                .build());
     }
 
     /**
