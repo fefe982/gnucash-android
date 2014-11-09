@@ -22,9 +22,11 @@ import android.app.PendingIntent;
 import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
+import android.database.SQLException;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteQueryBuilder;
 import android.database.sqlite.SQLiteStatement;
+import android.text.TextUtils;
 import android.util.Log;
 
 import org.gnucash.android.model.*;
@@ -38,7 +40,7 @@ import java.util.List;
  * Manages persistence of {@link Transaction}s in the database
  * Handles adding, modifying and deleting of transaction records.
  * @author Ngewi Fet <ngewif@gmail.com> 
- * 
+ * @author Yongxin Wang <fefe.wyx@gmail.com>
  */
 public class TransactionsDbAdapter extends DatabaseAdapter {
 
@@ -86,16 +88,40 @@ public class TransactionsDbAdapter extends DatabaseAdapter {
         contentValues.put(TransactionEntry.COLUMN_RECURRENCE_PERIOD, transaction.getRecurrencePeriod());
 
         Log.d(TAG, "Replacing transaction in db");
-        long rowId = mDb.replace(TransactionEntry.TABLE_NAME, null, contentValues);
+        long rowId = -1;
+        mDb.beginTransaction();
+        try {
+            rowId = mDb.replaceOrThrow(TransactionEntry.TABLE_NAME, null, contentValues);
 
-        if (rowId > 0){
             Log.d(TAG, "Adding splits for transaction");
+            ArrayList<String> splitUIDs = new ArrayList<String>(transaction.getSplits().size());
             for (Split split : transaction.getSplits()) {
-                mSplitsDbAdapter.addSplit(split);
+                contentValues.clear();
+                contentValues.put(SplitEntry.COLUMN_UID,        split.getUID());
+                contentValues.put(SplitEntry.COLUMN_AMOUNT,     split.getAmount().absolute().toPlainString());
+                contentValues.put(SplitEntry.COLUMN_TYPE,       split.getType().name());
+                contentValues.put(SplitEntry.COLUMN_MEMO,       split.getMemo());
+                contentValues.put(SplitEntry.COLUMN_ACCOUNT_UID, split.getAccountUID());
+                contentValues.put(SplitEntry.COLUMN_TRANSACTION_UID, split.getTransactionUID());
+                splitUIDs.add(split.getUID());
+
+                Log.d(TAG, "Replace transaction split in db");
+                mDb.replaceOrThrow(SplitEntry.TABLE_NAME, null, contentValues);
             }
             Log.d(TAG, transaction.getSplits().size() + " splits added");
+
+            long deleted = mDb.delete(SplitEntry.TABLE_NAME,
+                    SplitEntry.COLUMN_TRANSACTION_UID + " = ? AND "
+                            + SplitEntry.COLUMN_UID + " NOT IN ('" + TextUtils.join("' , '", splitUIDs) + "')",
+                    new String[]{transaction.getUID()});
+            Log.d(TAG, deleted + " splits deleted");
+            mDb.setTransactionSuccessful();
+        } catch (SQLException sqle) {
+            sqle.printStackTrace();
+        } finally {
+            mDb.endTransaction();
         }
-		return rowId;
+        return rowId;
 	}
 
     /**
@@ -243,13 +269,11 @@ public class TransactionsDbAdapter extends DatabaseAdapter {
      * @return Cursor holding set of all recurring transactions
      */
     public Cursor fetchAllRecurringTransactions(){
-        Cursor cursor = mDb.query(TransactionEntry.TABLE_NAME,
+        return mDb.query(TransactionEntry.TABLE_NAME,
                 null,
                 TransactionEntry.COLUMN_RECURRENCE_PERIOD + "!= 0",
                 null, null, null,
                 AccountEntry.COLUMN_NAME + " ASC, " + TransactionEntry.COLUMN_RECURRENCE_PERIOD + " ASC");
-//                DatabaseHelper.COLUMN_RECURRENCE_PERIOD + " ASC, " + DatabaseHelper.COLUMN_TIMESTAMP + " DESC");
-        return cursor;
     }
 
 	/**
@@ -305,63 +329,23 @@ public class TransactionsDbAdapter extends DatabaseAdapter {
 
     }
 
-    public Cursor fetchTransactionsWithSplitsWithTransactionAccount(String [] columns, String condition, String orderBy) {
+    public Cursor fetchTransactionsWithSplitsWithTransactionAccount(String [] columns, String where, String[] whereArgs, String orderBy) {
         // table is :
-        // transactions, splits ON transactions.uid = splits.transaction_uid ,
-        // ( SELECT transactions.uid AS trans_acct_t_uid ,
-        //      SUBSTR (
-        //          MIN (
-        //              ( CASE WHEN IFNULL ( splits.memo , '' ) == '' THEN 'a' ELSE 'b' END ) || splits.account_uid
-        //          ) ,
-        //          2
-        //      ) as trans_acct_a_uid ,
-        //   TOTAL ( CASE WHEN splits.type = 'DEBIT' THEN splits.amount ELSE - splits.amount END ) AS trans_acct_balance
-        //   FROM transactions, splits ON transactions.uid = splits.transaction_uid GROUP BY transactions.uid ) AS trans_acct ON
-        // trans_acct.trans_acct_t_uid = transactions.uid , accounts AS account1 ON account1.uid = trans_acct.trans_acct_a_uid ,
-        // accounts AS account2 ON account2.uid = splits.split_account_uid
+        // trans_split_acct , trans_extra_info ON trans_extra_info.trans_acct_t_uid = transactions_uid ,
+        // accounts AS account1 ON account1.uid = trans_extra_info.trans_acct_a_uid
         //
-        // This is multi table/sub-query join. The third select would pick one Account_UID for each
-        // Transaction, which can be used to order all transactions.
-        // This is used in QIF export, when all transactions are grouped by accounts.
-        //
-        // As the split memo for the account used for grouping is lost, a split without a split memo
-        // is chosen if possible, in the following manner:
-        //   if the splits memo is null or empty string, attach an 'a' in front of the split account uid,
-        //   if not, attach a 'b' to the split account uid
-        //   pick the minimal value of the modified account uid (one of the ones begins with 'a', if exists)
-        //   use substr to get account uid
+        // views effectively simplified this query
         //
         // account1 provides information for the grouped account. Splits from the grouped account
         // can be eliminated with a WHERE clause. Transactions in QIF can be auto balanced.
-        // account2 provides information for the account associated with the split.
         //
         // Account, transaction and split Information can be retrieve in a single query.
-        //
-        // Another approach is not to group transactions by account, be prefix each transaction with an account.
-        // It is easier and should also work, never tried though.
-        // By Yongxin Wang
         return mDb.query(
-                TransactionEntry.TABLE_NAME + " , " + SplitEntry.TABLE_NAME +
-                " ON " + TransactionEntry.TABLE_NAME + "." + TransactionEntry.COLUMN_UID +
-                " = " + SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_TRANSACTION_UID +
-                " , ( SELECT " + TransactionEntry.TABLE_NAME + "." + TransactionEntry.COLUMN_UID +
-                " AS trans_acct_t_uid , SUBSTR ( MIN ( ( CASE WHEN IFNULL ( " + SplitEntry.TABLE_NAME + "." +
-                SplitEntry.COLUMN_MEMO + " , '' ) == '' THEN 'a' ELSE 'b' END ) || " +
-                SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_ACCOUNT_UID +
-                " ) , 2 ) AS trans_acct_a_uid , TOTAL ( CASE WHEN " + SplitEntry.TABLE_NAME + "." +
-                SplitEntry.COLUMN_TYPE + " = 'DEBIT' THEN "+ SplitEntry.TABLE_NAME + "." +
-                SplitEntry.COLUMN_AMOUNT + " ELSE - " + SplitEntry.TABLE_NAME + "." +
-                SplitEntry.COLUMN_AMOUNT + " END ) AS trans_acct_balance FROM " +
-                TransactionEntry.TABLE_NAME + " , " + SplitEntry.TABLE_NAME +
-                " ON " + TransactionEntry.TABLE_NAME + "." + TransactionEntry.COLUMN_UID +
-                " = " + SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_TRANSACTION_UID +
-                " GROUP BY " + TransactionEntry.TABLE_NAME + "." + TransactionEntry.COLUMN_UID +
-                " )  AS trans_acct ON trans_acct.trans_acct_t_uid = " +
-                TransactionEntry.TABLE_NAME + "." + TransactionEntry.COLUMN_UID + " , " +
+                "trans_split_acct , trans_extra_info ON trans_extra_info.trans_acct_t_uid = trans_split_acct." +
+                TransactionEntry.TABLE_NAME + "_" + TransactionEntry.COLUMN_UID + " , " +
                 AccountEntry.TABLE_NAME + " AS account1 ON account1." + AccountEntry.COLUMN_UID +
-                " = trans_acct.trans_acct_a_uid , " + AccountEntry.TABLE_NAME + " AS account2 ON account2." +
-                AccountEntry.COLUMN_UID + " = " + SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_ACCOUNT_UID,
-                columns, condition, null, null, null , orderBy);
+                " = trans_extra_info.trans_acct_a_uid",
+                columns, where, whereArgs, null, null , orderBy);
     }
 
     /**
@@ -441,13 +425,11 @@ public class TransactionsDbAdapter extends DatabaseAdapter {
     /**
      * Returns the transaction balance for the transaction for the specified account.
      * <p>We consider only those splits which belong to this account</p>
-     * @param transactionId Database record ID of the transaction
-     * @param accountId Database record id of the account
+     * @param transactionUID GUID of the transaction
+     * @param accountUID GUID of the account
      * @return {@link org.gnucash.android.model.Money} balance of the transaction for that account
      */
-    public Money getBalance(long transactionId, long accountId){
-        String accountUID = getAccountUID(accountId);
-        String transactionUID = getUID(transactionId);
+    public Money getBalance(String transactionUID, String accountUID){
         List<Split> splitList = mSplitsDbAdapter.getSplitsForTransactionInAccount(
                 transactionUID, accountUID);
 
@@ -459,6 +441,7 @@ public class TransactionsDbAdapter extends DatabaseAdapter {
      * @param transactionId Database record ID of transaction
      * @return String unique identifier of the transaction
      */
+    @Override
     public String getUID(long transactionId){
         String uid = null;
         Cursor c = mDb.query(TransactionEntry.TABLE_NAME,
@@ -482,8 +465,7 @@ public class TransactionsDbAdapter extends DatabaseAdapter {
     @Override
 	public boolean deleteRecord(long rowId){
 		Log.d(TAG, "Delete transaction with record Id: " + rowId);
-		return mSplitsDbAdapter.deleteSplitsForTransaction(rowId) &&
-                deleteRecord(TransactionEntry.TABLE_NAME, rowId);
+		return mSplitsDbAdapter.deleteSplitsForTransaction(rowId);
 	}
 	
 	/**
@@ -503,20 +485,19 @@ public class TransactionsDbAdapter extends DatabaseAdapter {
 	public int deleteAllRecords(){
 		return deleteAllRecords(TransactionEntry.TABLE_NAME);
 	}
-	
-	/**
+
+    /**
 	 * Assigns transaction with id <code>rowId</code> to account with id <code>accountId</code>
-	 * @param rowId Record ID of the transaction to be assigned
-     * @param srcAccountId Record Id of the account from which the transaction is to be moved
-	 * @param dstAccountId Record Id of the account to which the transaction will be assigned
+	 * @param transactionUID GUID of the transaction
+     * @param srcAccountUID GUID of the account from which the transaction is to be moved
+	 * @param dstAccountUID GUID of the account to which the transaction will be assigned
 	 * @return Number of transactions splits affected
 	 */
-	public int moveTranscation(long rowId, long srcAccountId, long dstAccountId){
-		Log.i(TAG, "Moving transaction ID " + rowId + " splits from " + srcAccountId + " to account " + dstAccountId);
-		String srcAccountUID = getAccountUID(srcAccountId);
-        String dstAccountUID = getAccountUID(dstAccountId);
+	public int moveTranscation(String transactionUID, String srcAccountUID, String dstAccountUID){
+		Log.i(TAG, "Moving transaction ID " + transactionUID
+                + " splits from " + srcAccountUID + " to account " + dstAccountUID);
 
-		List<Split> splits = mSplitsDbAdapter.getSplitsForTransactionInAccount(getUID(rowId), srcAccountUID);
+		List<Split> splits = mSplitsDbAdapter.getSplitsForTransactionInAccount(transactionUID, srcAccountUID);
         for (Split split : splits) {
             split.setAccountUID(dstAccountUID);
             mSplitsDbAdapter.addSplit(split);
@@ -557,6 +538,7 @@ public class TransactionsDbAdapter extends DatabaseAdapter {
      * @param transactionUID Unique idendtifier of the transaction
      * @return Database record ID for the transaction
      */
+    @Override
     public long getID(String transactionUID){
         long id = -1;
         Cursor c = mDb.query(TransactionEntry.TABLE_NAME,
@@ -593,12 +575,11 @@ public class TransactionsDbAdapter extends DatabaseAdapter {
                 .append(" LIKE '").append(prefix).append("%'");
         String selection = stringBuffer.toString();
 
-        Cursor c = mDb.query(TransactionEntry.TABLE_NAME,
+        return mDb.query(TransactionEntry.TABLE_NAME,
                 new String[]{TransactionEntry._ID, TransactionEntry.COLUMN_DESCRIPTION},
                 selection,
                 null, null, null,
                 TransactionEntry.COLUMN_DESCRIPTION + " ASC");
-        return c;
     }
 
     /**
@@ -631,5 +612,32 @@ public class TransactionsDbAdapter extends DatabaseAdapter {
         AlarmManager alarmManager = (AlarmManager) mContext.getSystemService(Context.ALARM_SERVICE);
         alarmManager.setRepeating(AlarmManager.RTC_WAKEUP, firstRunMillis,
                 recurrencePeriodMillis, recurringPendingIntent);
+    }
+
+    /**
+     * Returns a transaction for the given transaction GUID
+     * @param transactionUID GUID of the transaction
+     * @return Retrieves a transaction from the database
+     */
+    public Transaction getTransaction(String transactionUID) {
+        return getTransaction(getID(transactionUID));
+    }
+
+    public int getNumCurrencies(String transactionUID) {
+        Cursor cursor = mDb.query("trans_extra_info",
+                new String[]{"trans_currency_count"},
+                "trans_acct_t_uid=?",
+                new String[]{transactionUID},
+                null, null, null);
+        int numCurrencies = 0;
+        try {
+            if (cursor.moveToFirst()) {
+                numCurrencies = cursor.getInt(0);
+            }
+        }
+        finally {
+            cursor.close();
+        }
+        return numCurrencies;
     }
 }

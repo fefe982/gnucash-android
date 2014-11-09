@@ -21,18 +21,15 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
-import android.database.sqlite.SQLiteQueryBuilder;
 import android.database.sqlite.SQLiteStatement;
 import android.text.TextUtils;
 
 import android.util.Log;
+import android.support.annotation.NonNull;
 import org.gnucash.android.R;
 import org.gnucash.android.app.GnuCashApplication;
-import org.gnucash.android.export.xml.GncXmlHelper;
 import org.gnucash.android.model.*;
-import org.xmlpull.v1.XmlSerializer;
 
-import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.*;
 
@@ -42,7 +39,7 @@ import static org.gnucash.android.db.DatabaseSchema.*;
  * Manages persistence of {@link Account}s in the database
  * Handles adding, modifying and deleting of account records.
  * @author Ngewi Fet <ngewif@gmail.com>
- *
+ * @author Yongxin Wang <fefe.wyx@gmail.com>
  */
 public class AccountsDbAdapter extends DatabaseAdapter {
     /**
@@ -282,10 +279,25 @@ public class AccountsDbAdapter extends DatabaseAdapter {
                     }
                 }
             }
+            // TODO: with "ON DELETE CASCADE", the first two delete will not be necessary.
+            //       deleteRecord(AccountEntry.TABLE_NAME, rowId); will delete related
+            //       transactions and splits
             //delete splits in this account
             mDb.delete(SplitEntry.TABLE_NAME,
-                    SplitEntry.COLUMN_ACCOUNT_UID + "=?",
+                    SplitEntry.COLUMN_TRANSACTION_UID  + " IN ( SELECT DISTINCT "
+                    + TransactionEntry.TABLE_NAME + "_" + TransactionEntry.COLUMN_UID
+                    + " FROM trans_split_acct WHERE "
+                    + AccountEntry.TABLE_NAME + "_" + AccountEntry.COLUMN_UID
+                    + " = ? )",
                     new String[]{getAccountUID(rowId)});
+            // delete empty transactions
+            // trans_split_acct is an inner joint, empty transactions will
+            // not be selected in this view
+            mDb.delete(TransactionEntry.TABLE_NAME,
+                    TransactionEntry.COLUMN_UID  + " NOT IN ( SELECT DISTINCT "
+                            + TransactionEntry.TABLE_NAME + "_" + TransactionEntry.COLUMN_UID
+                            + " FROM trans_split_acct )",
+                    null);
             deleteRecord(AccountEntry.TABLE_NAME, rowId);
             mDb.setTransactionSuccessful();
             return true;
@@ -473,7 +485,7 @@ public class AccountsDbAdapter extends DatabaseAdapter {
 	 * @return {@link Account} object for unique ID <code>uid</code>
 	 */
 	public Account getAccount(String uid){
-		return getAccount(getId(uid));
+		return getAccount(getID(uid));
 	}	
 	
     /**
@@ -913,12 +925,14 @@ public class AccountsDbAdapter extends DatabaseAdapter {
 
     /**
      * Returns a cursor to the dataset containing sub-accounts of the account with record ID <code>accoundId</code>
-     * @param accountId Record ID of the parent account
+     * @param accountUID GUID of the parent account
      * @return {@link Cursor} to the sub accounts data set
      */
-    public Cursor fetchSubAccounts(long accountId){
-        Log.v(TAG, "Fetching sub accounts for account id " + accountId);
-        String accountUID = getAccountUID(accountId);
+    public Cursor fetchSubAccounts(String accountUID){
+        if (accountUID == null)
+            throw new IllegalArgumentException("Account UID cannot be null");
+
+        Log.v(TAG, "Fetching sub accounts for account id " + accountUID);
         return mDb.query(AccountEntry.TABLE_NAME,
                 null,
                 AccountEntry.COLUMN_PARENT_ACCOUNT_UID + " = '" + accountUID + "'",
@@ -999,15 +1013,14 @@ public class AccountsDbAdapter extends DatabaseAdapter {
 
     /**
      * Returns the number of accounts for which the account with ID <code>accoundId</code> is a first level parent
-     * @param accountId Database ID of parent account
+     * @param accountUID String Unique ID (GUID) of the account
      * @return Number of sub accounts
      */
-    public int getSubAccountCount(long accountId){
+    public int getSubAccountCount(String accountUID){
         //TODO: at some point when API level 11 and above only is supported, use DatabaseUtils.queryNumEntries
 
         String queryCount = "SELECT COUNT(*) FROM " + AccountEntry.TABLE_NAME + " WHERE "
                 + AccountEntry.COLUMN_PARENT_ACCOUNT_UID + " = ?";
-        String accountUID = getAccountUID(accountId);
         if (accountUID == null) //if the account UID is null, then the accountId param was invalid. Just return
             return 0;
         Cursor cursor = mDb.rawQuery(queryCount, new String[]{accountUID});
@@ -1038,7 +1051,8 @@ public class AccountsDbAdapter extends DatabaseAdapter {
 	 * @param accountUID String Unique ID of the account
 	 * @return Record ID belonging to account UID
 	 */
-	public long getId(String accountUID){
+    @Override
+	public long getID(String accountUID){
 		long id = -1;
 		Cursor c = mDb.query(AccountEntry.TABLE_NAME,
 				new String[]{AccountEntry._ID},
@@ -1052,8 +1066,13 @@ public class AccountsDbAdapter extends DatabaseAdapter {
         }
 		return id;
 	}
-	
-	/**
+
+    @Override
+    public String getUID(long id) {
+        return getAccountUID(id);
+    }
+
+    /**
 	 * Returns currency code of account with database ID <code>id</code>
 	 * @param id Record ID of the account to be removed
 	 * @return Currency code of the account
@@ -1318,4 +1337,27 @@ public class AccountsDbAdapter extends DatabaseAdapter {
         mDb.delete(SplitEntry.TABLE_NAME, null, null);
         return mDb.delete(AccountEntry.TABLE_NAME, null, null);
 	}
+
+    public int getTransactionMaxSplitNum(@NonNull String accountUID) {
+        Cursor cursor = mDb.query("trans_extra_info",
+                new String[]{"MAX(trans_split_count)"},
+                "trans_acct_t_uid IN ( SELECT DISTINCT " + TransactionEntry.TABLE_NAME + "_" + TransactionEntry.COLUMN_UID +
+                        " FROM trans_split_acct WHERE " + AccountEntry.TABLE_NAME + "_" + AccountEntry.COLUMN_UID +
+                        " = ? )",
+                new String[]{accountUID},
+                null,
+                null,
+                null
+                );
+        try {
+            if (cursor.moveToFirst()) {
+                return (int)cursor.getLong(0);
+            } else {
+                return 0;
+            }
+        }
+        finally {
+            cursor.close();
+        }
+    }
 }

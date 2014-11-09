@@ -79,12 +79,11 @@ public class GnuCashApplication extends Application{
     /**
      * Returns <code>true</code> if double entry is enabled in the app settings, <code>false</code> otherwise.
      * If the value is not set, the default value can be specified in the parameters.
-     * @param defaultValue Default value to return if double entry is not explicitly set
      * @return <code>true</code> if double entry is enabled, <code>false</code> otherwise
      */
-    public static boolean isDoubleEntryEnabled(boolean defaultValue){
+    public static boolean isDoubleEntryEnabled(){
         SharedPreferences sharedPrefs = PreferenceManager.getDefaultSharedPreferences(context);
-        return sharedPrefs.getBoolean(context.getString(R.string.key_use_double_entry), defaultValue);
+        return sharedPrefs.getBoolean(context.getString(R.string.key_use_double_entry), false);
     }
 
     /**
@@ -120,7 +119,7 @@ public class GnuCashApplication extends Application{
         try { //there are some strange locales out there
             currencyCode = Currency.getInstance(locale).getCurrencyCode();
         } catch (Throwable e) {
-            Log.e(context.getString(R.string.app_name), e.getMessage());
+            Log.e(context.getString(R.string.app_name), "" + e.getMessage());
         } finally {
             currencyCode = prefs.getString(context.getString(R.string.key_default_currency), currencyCode);
         }
