@@ -1,5 +1,37 @@
 Change Log
 ===============================================================================
+Version 1.5.5 *(2015-02-20)*
+----------------------------
+Fixed: QIF not exported when using single-entry transactions
+Fixed: Passcode screen can be by-passed using SwipeBack
+Fixed: Crash when changing the account name
+
+Version 1.5.4 *(2015-02-16)*
+----------------------------
+* Fixed: Crash when creating TRADING accounts
+* Fixed: Crash when deleting scheduled transactions
+* Fixed: Account parent can be set to self, creating a cyclic hierarchy
+* Fixed: Transactions not saved when double-entry is enabled but no transfer account is specified
+* Improved: Auto-select the device locale currency in the account-creation dialog
+* Improved: Upgraded structure of repository to match latest Android conventions
+* Improved: Updated instrumentation tests and enabled better test reporting with Spoon
+
+Version 1.5.3 *(2015-02-02)*
+----------------------------
+* Fixed: Unable to edit double-entry transactions
+* Fixed: Edited transactions not flagged unexported
+* Fixed: Random crashes when editing transaction splits
+* Improved: Long press on transactions triggers context menu
+
+Version 1.5.2 *(2015-01-26)*
+----------------------------
+* Fixed: Crash when importing XML with TRADING accounts
+* Fixed: Full name not updated when account name is changed
+* Fixed: Toggle button shown when double-entry is disabled
+* Fixed: Amount input problems on some devices or keyboards
+* Fixed: Crash when changing the parent of an account
+* Fixed: Deleting a transaction only deletes some splits, not the whole.
+
 Version 1.5.1 *(2014-10-08)*
 ----------------------------
 * Fixed: Crash when upgrading from v1.4.x to v1.5.x

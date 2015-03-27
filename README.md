@@ -20,25 +20,36 @@ There are different ways to get the Gnucash app for Android; through the app sto
 
 ## Building
 
-The build requires [Maven](http://maven.apache.org/download.html)
-v3.0.3+ and the [Android SDK](http://developer.android.com/sdk/index.html)
+### With Gradle
+
+This project requires the [Android SDK](http://developer.android.com/sdk/index.html)
 to be installed in your development environment. In addition you'll need to set
-the `ANDROID_HOME` environment variable to the location of your SDK:
+the `ANDROID_HOME` environment variable to the location of your SDK. For example:
 
     export ANDROID_HOME=/home/<user>/tools/android-sdk
 
 After satisfying those requirements, the build is pretty simple:
 
-* Run `mvn clean package` from the `app` directory to build the APK only
-* Run `mvn clean install` from the root directory to build the app and also run
-  the integration tests, this requires a connected Android device or running
-  emulator. (see this [blog post](http://goo.gl/TprMw) for details)
+* Run `gradlew build installDebug` from the within the project folder.
+It will build the project for you and install it to the connected Android device or running emulator.
 
 You might find that your device doesn't let you install your build if you
 already have the version from the Android Market installed.  This is standard
 Android security as it it won't let you directly replace an app that's been
 signed with a different key.  Manually uninstall GnuCash from your device and
 you will then be able to install your own built version.
+
+### With Android Studio
+The easiest way to build is to install [Android Studio](https://developer.android.com/sdk/index.html) v1.+
+with [Gradle](https://www.gradle.org/) v2.2.1.
+Once installed, then you can import the project into Android Studio:
+
+1. Open `File`
+2. Import Project
+3. Select `build.gradle` under the project directory
+4. Click `OK`
+
+Then, Gradle will do everything for you.
 
 ## Contributing
 
@@ -51,7 +62,7 @@ You could as well contribute code, fixing bugs, new features or automated tests.
 Take a look at the [bug tracker](https://github.com/codinguser/gnucash-android/issues?state=open)
 for ideas where to start.
 
-For development, it is recommended to use the IntelliJ IDEA 13+ IDE for development which is available as free
+For development, it is recommended to use the IntelliJ IDEA 14+ IDE for development which is available as free
 community edition. Import the project into the IDE from an external (maven) model.The IDE will resolve dependencies automatically.
 
 #Licence
