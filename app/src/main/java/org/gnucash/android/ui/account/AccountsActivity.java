@@ -163,7 +163,11 @@ public class AccountsActivity extends PassLockActivity implements OnAccountClick
 
         @Override
         public Fragment getItem(int i) {
-            AccountsListFragment currentFragment;
+            AccountsListFragment currentFragment = (AccountsListFragment)mFragmentPageReferenceMap.get(i);
+            if (currentFragment != null) {
+                return currentFragment;
+            }
+
             switch (i){
                 case INDEX_RECENT_ACCOUNTS_FRAGMENT:
                     currentFragment = AccountsListFragment.newInstance(AccountsListFragment.DisplayMode.RECENT);
@@ -186,7 +190,7 @@ public class AccountsActivity extends PassLockActivity implements OnAccountClick
         @Override
         public void destroyItem(ViewGroup container, int position, Object object) {
             super.destroyItem(container, position, object);
-            mFragmentPageReferenceMap.remove(position);
+            //mFragmentPageReferenceMap.remove(position);
         }
 
         @Override
