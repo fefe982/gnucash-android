@@ -324,7 +324,6 @@ public class AccountsListFragment extends Fragment implements
     public void onLoadFinished(Loader<Cursor> loaderCursor, Cursor cursor) {
         Log.d(TAG, "Accounts loader finished. Swapping in cursor");
         mAccountRecyclerAdapter.swapCursor(cursor);
-        mAccountRecyclerAdapter.notifyDataSetChanged();
     }
 
     @Override
@@ -429,8 +428,12 @@ public class AccountsListFragment extends Fragment implements
 
             }
 
-            if (cursor != null)
+            if (cursor != null) {
                 registerContentObserver(cursor);
+                // cursor load can take a lot of time
+                // make sure it loads in background
+                cursor.getCount();
+            }
             return cursor;
         }
     }
@@ -453,10 +456,10 @@ public class AccountsListFragment extends Fragment implements
         @Override
         public void onBindViewHolderCursor(final AccountViewHolder holder, final Cursor cursor) {
             final String accountUID = cursor.getString(cursor.getColumnIndexOrThrow(DatabaseSchema.AccountEntry.COLUMN_UID));
-            holder.accoundId = mAccountsDbAdapter.getID(accountUID);
+            holder.accoundId = cursor.getLong(cursor.getColumnIndexOrThrow(DatabaseSchema.CommonColumns._ID));
 
             holder.accountName.setText(cursor.getString(cursor.getColumnIndexOrThrow(DatabaseSchema.AccountEntry.COLUMN_NAME)));
-            int subAccountCount = mAccountsDbAdapter.getSubAccountCount(accountUID);
+            int subAccountCount = cursor.getInt(cursor.getColumnIndexOrThrow("sub_account_count"));
             if (subAccountCount > 0) {
                 holder.description.setVisibility(View.VISIBLE);
                 String text = getResources().getQuantityString(R.plurals.label_sub_accounts, subAccountCount, subAccountCount);
@@ -475,7 +478,7 @@ public class AccountsListFragment extends Fragment implements
             int colorCode = accountColor == null ? Color.TRANSPARENT : Color.parseColor(accountColor);
             holder.colorStripView.setBackgroundColor(colorCode);
 
-            boolean isPlaceholderAccount = mAccountsDbAdapter.isPlaceholderAccount(accountUID);
+            boolean isPlaceholderAccount = cursor.getInt(cursor.getColumnIndexOrThrow(DatabaseSchema.AccountEntry.COLUMN_PLACEHOLDER)) == 1;
             if (isPlaceholderAccount) {
                 holder.createTransaction.setVisibility(View.GONE);
             } else {
@@ -492,7 +495,7 @@ public class AccountsListFragment extends Fragment implements
                 });
             }
 
-            if (mAccountsDbAdapter.isFavoriteAccount(accountUID)){
+            if (cursor.getInt(cursor.getColumnIndexOrThrow(DatabaseSchema.AccountEntry.COLUMN_FAVORITE)) == 1){
                 holder.favoriteStatus.setImageResource(R.drawable.ic_star_black_24dp);
             } else {
                 holder.favoriteStatus.setImageResource(R.drawable.ic_star_border_black_24dp);

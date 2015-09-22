@@ -73,6 +73,9 @@ public class AccountsDbAdapter extends DatabaseAdapter<Account> {
 	 */
     private final TransactionsDbAdapter mTransactionsAdapter;
 
+    private final String queryCountString = "SELECT COUNT(*) FROM " + AccountEntry.TABLE_NAME + " WHERE "
+            + AccountEntry.COLUMN_PARENT_ACCOUNT_UID + " = ";
+
     /**
      * Overloaded constructor. Creates an adapter for an already open database
      * @param db SQliteDatabase instance
@@ -675,8 +678,10 @@ public class AccountsDbAdapter extends DatabaseAdapter<Account> {
         }
         Log.v(LOG_TAG, "Fetching all accounts from db where " + where + " order by " + orderBy);
 
-        return mDb.query(AccountEntry.TABLE_NAME,
-                null, where, whereArgs, null, null,
+        return mDb.query(AccountEntry.TABLE_NAME + " AS accounts_table",
+                new String[]{"accounts_table.*",
+                        "(" + queryCountString + "accounts_table." + DatabaseSchema.CommonColumns.COLUMN_UID + ") AS sub_account_count"},
+                where, whereArgs, null, null,
                 orderBy);
     }
     /**
@@ -843,8 +848,9 @@ public class AccountsDbAdapter extends DatabaseAdapter<Account> {
         Log.v(LOG_TAG, "Fetching sub accounts for account id " + accountUID);
         String selection = AccountEntry.COLUMN_HIDDEN + " = 0 AND "
                 + AccountEntry.COLUMN_PARENT_ACCOUNT_UID + " = ?";
-        return mDb.query(AccountEntry.TABLE_NAME,
-                null,
+        return mDb.query(AccountEntry.TABLE_NAME + " AS accounts_table",
+                new String[]{"accounts_table.*",
+                        "(" + queryCountString + "accounts_table." + DatabaseSchema.CommonColumns.COLUMN_UID + ") AS sub_account_count"},
                 selection,
                 new String[]{accountUID}, null, null, AccountEntry.COLUMN_NAME + " ASC");
     }
@@ -874,7 +880,8 @@ public class AccountsDbAdapter extends DatabaseAdapter<Account> {
                         + SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_TRANSACTION_UID
                         + " , " + AccountEntry.TABLE_NAME + " ON " + SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_ACCOUNT_UID
                         + " = " + AccountEntry.TABLE_NAME + "." + AccountEntry.COLUMN_UID,
-                new String[]{AccountEntry.TABLE_NAME + ".*"},
+                new String[]{AccountEntry.TABLE_NAME + ".*",
+                                "(" + queryCountString + SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_ACCOUNT_UID + ") AS sub_account_count"},
                 AccountEntry.COLUMN_HIDDEN + " = 0",
                 null,
                 SplitEntry.TABLE_NAME + "." + SplitEntry.COLUMN_ACCOUNT_UID, //groupby
@@ -891,8 +898,10 @@ public class AccountsDbAdapter extends DatabaseAdapter<Account> {
     public Cursor fetchFavoriteAccounts(){
         Log.v(LOG_TAG, "Fetching favorite accounts from db");
         String condition = AccountEntry.COLUMN_FAVORITE + " = 1";
-        return mDb.query(AccountEntry.TABLE_NAME,
-                null, condition, null, null, null,
+        return mDb.query(AccountEntry.TABLE_NAME + " AS accounts_table",
+                new String[]{"accounts_table.*",
+                        "(" + queryCountString + "accounts_table." + DatabaseSchema.CommonColumns.COLUMN_UID + ") AS sub_account_count"},
+                condition, null, null, null,
                 AccountEntry.COLUMN_NAME + " ASC");
     }
 

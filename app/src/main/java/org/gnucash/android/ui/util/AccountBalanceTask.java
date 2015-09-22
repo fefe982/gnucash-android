@@ -69,8 +69,9 @@ public class AccountBalanceTask extends AsyncTask<String, Void, Money> {
     @Override
     protected void onPostExecute(Money balance) {
         if (accountBalanceTextViewReference.get() != null && balance != null){
-            final Context context = GnuCashApplication.getAppContext();
+            //final Context context = GnuCashApplication.getAppContext();
             final TextView balanceTextView = accountBalanceTextViewReference.get();
+            Log.d(getClass().getName(), "post Execute + " + balance.formattedString());
             if (balanceTextView != null){
                 TransactionsActivity.displayBalance(balanceTextView, balance);
             }

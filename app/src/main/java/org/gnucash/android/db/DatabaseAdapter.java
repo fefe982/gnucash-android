@@ -174,6 +174,9 @@ public abstract class DatabaseAdapter<Model extends BaseModel> {
                 " ) AS trans_currency_count , COUNT (*) AS trans_split_count FROM trans_split_acct " +
                 " GROUP BY " + TransactionEntry.TABLE_NAME + "_" + TransactionEntry.COLUMN_UID
         );
+
+        mDb.execSQL("CREATE INDEX IF NOT EXISTS idx_trans_time ON " +
+            TransactionEntry.TABLE_NAME + " (" + TransactionEntry.COLUMN_TIMESTAMP + ")");
     }
 
     /**
