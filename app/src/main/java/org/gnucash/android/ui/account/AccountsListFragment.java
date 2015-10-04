@@ -79,6 +79,8 @@ public class AccountsListFragment extends Fragment implements
     @Bind(R.id.account_recycler_view)  EmptyRecyclerView mRecyclerView;
     @Bind(R.id.empty_view) TextView mEmptyTextView;
 
+    long mLastRefreshTime = 0;
+
     /**
      * Describes the kinds of accounts that should be loaded in the accounts list.
      * This enhances reuse of the accounts list fragment
@@ -188,6 +190,7 @@ public class AccountsListFragment extends Fragment implements
         mRecyclerView.setAdapter(mAccountRecyclerAdapter);
 
         getLoaderManager().initLoader(0, null, this);
+        mLastRefreshTime = System.currentTimeMillis();
     }
 
     @Override
@@ -273,8 +276,11 @@ public class AccountsListFragment extends Fragment implements
 
     @Override
     public void refresh(String parentAccountUID) {
-        getArguments().putString(UxArgument.PARENT_ACCOUNT_UID, parentAccountUID);
-        refresh();
+        if (!parentAccountUID.equals(getArguments().getString(UxArgument.PARENT_ACCOUNT_UID))) {
+            getArguments().putString(UxArgument.PARENT_ACCOUNT_UID, parentAccountUID);
+            mLastRefreshTime = System.currentTimeMillis();
+            reloadDB();
+        }
     }
 
     /**
@@ -283,6 +289,13 @@ public class AccountsListFragment extends Fragment implements
      */
     @Override
     public void refresh() {
+        if (mAccountsDbAdapter.getLastModificationTime() >= mLastRefreshTime) {
+            reloadDB();
+            mLastRefreshTime = System.currentTimeMillis();
+        }
+    }
+
+    private void reloadDB() {
         getLoaderManager().restartLoader(0, null, this);
     }
 
@@ -310,6 +323,11 @@ public class AccountsListFragment extends Fragment implements
     @Override
     public Loader<Cursor> onCreateLoader(int id, Bundle args) {
         Log.d(TAG, "Creating the accounts loader");
+        try {
+            throw new RuntimeException("");
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+        }
         Bundle arguments = getArguments();
         String accountUID = arguments == null ? null : arguments.getString(UxArgument.PARENT_ACCOUNT_UID);
 
@@ -322,6 +340,11 @@ public class AccountsListFragment extends Fragment implements
 
     @Override
     public void onLoadFinished(Loader<Cursor> loaderCursor, Cursor cursor) {
+        try {
+            throw new RuntimeException("");
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+        }
         Log.d(TAG, "Accounts loader finished. Swapping in cursor");
         mAccountRecyclerAdapter.swapCursor(cursor);
     }

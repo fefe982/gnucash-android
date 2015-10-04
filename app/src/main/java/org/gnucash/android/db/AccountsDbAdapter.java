@@ -236,7 +236,11 @@ public class AccountsDbAdapter extends DatabaseAdapter<Account> {
         } else {
             contentValues.put(columnKey, newValue);
         }
-        return mDb.update(AccountEntry.TABLE_NAME, contentValues, null, null);
+        int rows = mDb.update(AccountEntry.TABLE_NAME, contentValues, null, null);
+        if (rows > 0) {
+            setModificationTime();
+        }
+        return rows;
     }
 
     /**
@@ -274,40 +278,47 @@ public class AccountsDbAdapter extends DatabaseAdapter<Account> {
                 parentAccountFullName = getAccountFullName(newParentAccountUID);
             }
             ContentValues contentValues = new ContentValues();
-            for (String acctUID : descendantAccountUIDs) {
-                Account acct = mapAccounts.get(acctUID);
-                if (accountUID.equals(acct.getParentUID())) {
-                    // direct descendant
-                    acct.setParentUID(newParentAccountUID);
-                    if (parentAccountFullName == null || parentAccountFullName.isEmpty()) {
-                        acct.setFullName(acct.getName());
+            beginTransaction();
+            try {
+                for (String acctUID : descendantAccountUIDs) {
+                    Account acct = mapAccounts.get(acctUID);
+                    if (accountUID.equals(acct.getParentUID())) {
+                        // direct descendant
+                        acct.setParentUID(newParentAccountUID);
+                        if (parentAccountFullName == null || parentAccountFullName.isEmpty()) {
+                            acct.setFullName(acct.getName());
+                        } else {
+                            acct.setFullName(parentAccountFullName + ACCOUNT_NAME_SEPARATOR + acct.getName());
+                        }
+                        // update DB
+                        contentValues.clear();
+                        contentValues.put(AccountEntry.COLUMN_PARENT_ACCOUNT_UID, newParentAccountUID);
+                        contentValues.put(AccountEntry.COLUMN_FULL_NAME, acct.getFullName());
+                        mDb.update(
+                                AccountEntry.TABLE_NAME, contentValues,
+                                AccountEntry.COLUMN_UID + " = ?",
+                                new String[]{acct.getUID()}
+                        );
                     } else {
-                        acct.setFullName(parentAccountFullName + ACCOUNT_NAME_SEPARATOR + acct.getName());
+                        // indirect descendant
+                        acct.setFullName(
+                                mapAccounts.get(acct.getParentUID()).getFullName() +
+                                        ACCOUNT_NAME_SEPARATOR + acct.getName()
+                        );
+                        // update DB
+                        contentValues.clear();
+                        contentValues.put(AccountEntry.COLUMN_FULL_NAME, acct.getFullName());
+                        mDb.update(
+                                AccountEntry.TABLE_NAME, contentValues,
+                                AccountEntry.COLUMN_UID + " = ?",
+                                new String[]{acct.getUID()}
+                        );
                     }
-                    // update DB
-                    contentValues.clear();
-                    contentValues.put(AccountEntry.COLUMN_PARENT_ACCOUNT_UID, newParentAccountUID);
-                    contentValues.put(AccountEntry.COLUMN_FULL_NAME, acct.getFullName());
-                    mDb.update(
-                            AccountEntry.TABLE_NAME, contentValues,
-                            AccountEntry.COLUMN_UID + " = ?",
-                            new String[]{acct.getUID()}
-                    );
-                } else {
-                    // indirect descendant
-                    acct.setFullName(
-                            mapAccounts.get(acct.getParentUID()).getFullName() +
-                                    ACCOUNT_NAME_SEPARATOR + acct.getName()
-                    );
-                    // update DB
-                    contentValues.clear();
-                    contentValues.put(AccountEntry.COLUMN_FULL_NAME, acct.getFullName());
-                    mDb.update(
-                            AccountEntry.TABLE_NAME, contentValues,
-                            AccountEntry.COLUMN_UID + " = ?",
-                            new String[]{acct.getUID()}
-                    );
                 }
+                setTransactionSuccessful();
+                setModificationTime();
+            } finally {
+                endTransaction();
             }
         }
     }
@@ -352,6 +363,7 @@ public class AccountsDbAdapter extends DatabaseAdapter<Account> {
                     null
             );
             mDb.setTransactionSuccessful();
+            setModificationTime();
             return true;
         }
         finally {
@@ -937,6 +949,7 @@ public class AccountsDbAdapter extends DatabaseAdapter<Account> {
         contentValues.put(AccountEntry.COLUMN_COMMODITY_UID, CommoditiesDbAdapter.getInstance().getCommodityUID(defaultCurrencyCode));
         Log.i(LOG_TAG, "Creating ROOT account");
         mDb.insert(AccountEntry.TABLE_NAME, null, contentValues);
+        setModificationTime();
         return rootAccount.getUID();
     }
 
@@ -1202,6 +1215,7 @@ public class AccountsDbAdapter extends DatabaseAdapter<Account> {
         mDb.delete(SplitEntry.TABLE_NAME, null, null);
         mDb.delete(TransactionEntry.TABLE_NAME, null, null);
         mDb.delete(DatabaseSchema.ScheduledActionEntry.TABLE_NAME, null, null);
+        setModificationTime();
         return mDb.delete(AccountEntry.TABLE_NAME, null, null);
     }
 

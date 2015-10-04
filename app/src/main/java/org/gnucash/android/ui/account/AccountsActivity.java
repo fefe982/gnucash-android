@@ -41,6 +41,7 @@ import android.support.design.widget.TabLayout;
 import android.support.v4.app.Fragment;
 import android.support.v4.app.FragmentActivity;
 import android.support.v4.app.FragmentManager;
+import android.support.v4.app.FragmentPagerAdapter;
 import android.support.v4.app.FragmentStatePagerAdapter;
 import android.support.v4.view.PagerAdapter;
 import android.support.v4.view.ViewPager;
@@ -155,7 +156,7 @@ public class AccountsActivity extends PassLockActivity implements OnAccountClick
     /**
      * Adapter for managing the sub-account and transaction fragment pages in the accounts view
      */
-    private class AccountViewPagerAdapter extends FragmentStatePagerAdapter {
+    private class AccountViewPagerAdapter extends FragmentPagerAdapter {
 
         public AccountViewPagerAdapter(FragmentManager fm){
             super(fm);

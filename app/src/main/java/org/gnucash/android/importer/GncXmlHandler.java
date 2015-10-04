@@ -375,6 +375,7 @@ public class GncXmlHandler extends DefaultHandler {
                 }
                 if (mTransaction != null) {
                     mTransaction.setCurrencyCode(currencyCode);
+                    mTransaction.setCommodityUID(mCommoditiesDbAdapter.getCommodityUID(currencyCode));
                 }
                 if (mPrice != null) {
                     if (mPriceCommodity) {

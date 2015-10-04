@@ -56,11 +56,19 @@ public abstract class DatabaseAdapter<Model extends BaseModel> {
 
     protected SQLiteStatement mReplaceStatement;
 
+    // last modification timestamp
+    // refreshing the UI may takes some time. A timestamp will help the UI to be refreshed only
+    // when there is something changed in the DB.
+    // Every function that uses mDB directly to modify the DB (like mDb.update, mDb.execSQL,
+    // compileStatement, etc) should (#setModificationTime) to set the timestamp
+    private long mLastModificationTime;
+
     /**
      * Opens the database adapter with an existing database
      * @param db SQLiteDatabase object
      */
     public DatabaseAdapter(SQLiteDatabase db, @NonNull String tableName) {
+        System.currentTimeMillis();
         this.mTableName = tableName;
         this.mDb = db;
         if (!db.isOpen() || db.isReadOnly())
@@ -196,6 +204,7 @@ public abstract class DatabaseAdapter<Model extends BaseModel> {
     public void addRecord(@NonNull final Model model){
         Log.d(LOG_TAG, String.format("Adding %s record to database: ", model.getClass().getName()));
         compileReplaceStatement(model).execute();
+        setModificationTime();
     }
 
     /**
@@ -224,7 +233,9 @@ public abstract class DatabaseAdapter<Model extends BaseModel> {
         finally {
             mDb.endTransaction();
         }
-
+        if (nRow > 0) {
+            setModificationTime();
+        }
         return nRow;
     }
 
@@ -373,7 +384,13 @@ public abstract class DatabaseAdapter<Model extends BaseModel> {
 	 */
 	public boolean deleteRecord(long rowId){
         Log.d(LOG_TAG, "Deleting record with id " + rowId + " from " + mTableName);
-		return mDb.delete(mTableName, DatabaseSchema.CommonColumns._ID + "=" + rowId, null) > 0;
+		if (mDb.delete(mTableName, DatabaseSchema.CommonColumns._ID + "=" + rowId, null) > 0) {
+            setModificationTime();
+            return true;
+        }
+        else {
+            return false;
+        }
 	}
 
     /**
@@ -381,7 +398,11 @@ public abstract class DatabaseAdapter<Model extends BaseModel> {
      * @return Number of deleted records
      */
     public int deleteAllRecords(){
-        return mDb.delete(mTableName, null, null);
+        int rows =  mDb.delete(mTableName, null, null);
+        if (rows > 0) {
+            setModificationTime();
+        }
+        return rows;
     }
 
     /**
@@ -495,8 +516,12 @@ public abstract class DatabaseAdapter<Model extends BaseModel> {
         } else {
             contentValues.put(columnKey, newValue);
         }
-        return mDb.update(tableName, contentValues,
+        int rows = mDb.update(tableName, contentValues,
                 DatabaseSchema.CommonColumns._ID + "=" + recordId, null);
+        if (rows > 0) {
+            setModificationTime();
+        }
+        return rows;
     }
 
     /**
@@ -507,7 +532,11 @@ public abstract class DatabaseAdapter<Model extends BaseModel> {
      * @return Number of records affected
      */
     public int updateRecord(@NonNull String uid, @NonNull String columnKey, String newValue) {
-        return updateRecords(CommonColumns.COLUMN_UID + "= ?", new String[]{uid}, columnKey, newValue);
+        int rows = updateRecords(CommonColumns.COLUMN_UID + "= ?", new String[]{uid}, columnKey, newValue);
+        if (rows > 0) {
+            setModificationTime();
+        }
+        return rows;
     }
 
     /**
@@ -517,7 +546,11 @@ public abstract class DatabaseAdapter<Model extends BaseModel> {
      * @return Number of records updated
      */
     public int updateRecord(@NonNull String uid, @NonNull ContentValues contentValues){
-        return mDb.update(mTableName, contentValues, CommonColumns.COLUMN_UID + "=?", new String[]{uid});
+        int rows = mDb.update(mTableName, contentValues, CommonColumns.COLUMN_UID + "=?", new String[]{uid});
+        if (rows > 0) {
+            setModificationTime();
+        }
+        return rows;
     }
 
     /**
@@ -535,7 +568,11 @@ public abstract class DatabaseAdapter<Model extends BaseModel> {
         } else {
             contentValues.put(columnKey, newValue);
         }
-        return mDb.update(mTableName, contentValues, where, whereArgs);
+        int rows = mDb.update(mTableName, contentValues, where, whereArgs);
+        if (rows > 0) {
+            setModificationTime();
+        }
+        return rows;
     }
 
     /**
@@ -604,5 +641,21 @@ public abstract class DatabaseAdapter<Model extends BaseModel> {
      */
     public void endTransaction() {
         mDb.endTransaction();
+    }
+
+    /**
+     * Set modification timestamp
+     */
+    protected void setModificationTime() {
+        mLastModificationTime = System.currentTimeMillis();
+    }
+
+    /**
+     * Get the modification timestamp
+     *
+     * @return the modification timestamp
+     */
+    public long getLastModificationTime() {
+        return mLastModificationTime;
     }
 }

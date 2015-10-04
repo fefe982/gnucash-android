@@ -109,7 +109,9 @@ public class TransactionsDbAdapter extends DatabaseAdapter<Transaction> {
                             + SplitEntry.COLUMN_UID + " NOT IN ('" + TextUtils.join("' , '", splitUIDs) + "')",
                     new String[]{transaction.getUID()});
             Log.d(LOG_TAG, deleted + " splits deleted");
-
+            if (deleted > 0) {
+                setModificationTime();
+            }
             mDb.setTransactionSuccessful();
         } catch (SQLException sqlEx) {
             Log.e(LOG_TAG, sqlEx.getMessage());
@@ -227,6 +229,7 @@ public class TransactionsDbAdapter extends DatabaseAdapter<Transaction> {
                 + " (SELECT " + SplitEntry.COLUMN_TRANSACTION_UID + " FROM " + SplitEntry.TABLE_NAME + " WHERE "
                 + SplitEntry.COLUMN_ACCOUNT_UID + " = ?)";
         mDb.execSQL(rawDeleteQuery, new String[]{accountUID});
+        setModificationTime();
     }
 
     /**
@@ -531,7 +534,11 @@ public class TransactionsDbAdapter extends DatabaseAdapter<Transaction> {
      * @return Number of records affected
      */
     public int updateTransaction(ContentValues contentValues, String whereClause, String[] whereArgs){
-        return mDb.update(TransactionEntry.TABLE_NAME, contentValues, whereClause, whereArgs);
+        int rows = mDb.update(TransactionEntry.TABLE_NAME, contentValues, whereClause, whereArgs);
+        if (rows > 0) {
+            setModificationTime();
+        }
+        return rows;
     }
 
     /**
@@ -565,7 +572,11 @@ public class TransactionsDbAdapter extends DatabaseAdapter<Transaction> {
      */
     public int deleteAllNonTemplateTransactions(){
         String where = TransactionEntry.COLUMN_TEMPLATE + "=0";
-        return mDb.delete(mTableName, where, null);
+        int rows = mDb.delete(mTableName, where, null);
+        if (rows > 0) {
+            setModificationTime();
+        }
+        return rows;
     }
 
     /**

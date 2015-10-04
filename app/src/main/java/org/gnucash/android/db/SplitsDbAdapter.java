@@ -415,6 +415,7 @@ public class SplitsDbAdapter extends DatabaseAdapter<Split> {
         } finally {
             cursor.close();
         }
+        setModificationTime();
         return result;
     }
 

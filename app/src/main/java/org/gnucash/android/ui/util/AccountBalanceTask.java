@@ -44,6 +44,11 @@ public class AccountBalanceTask extends AsyncTask<String, Void, Money> {
     private final AccountsDbAdapter accountsDbAdapter;
 
     public AccountBalanceTask(TextView balanceTextView){
+        try {
+            throw new RuntimeException("");
+        } catch (RuntimeException e) {
+            e.printStackTrace();
+        }
         accountBalanceTextViewReference = new WeakReference<>(balanceTextView);
         accountsDbAdapter = AccountsDbAdapter.getInstance();
     }
